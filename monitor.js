@@ -149,25 +149,26 @@ async function runMonitor() {
 
   await browser.close();
 
-  // Generate professional report with HTML table
+  // Generate professional report with clean list format
   let report = `Hi Shane,\n\n`;
   report += `Here is the full status report from checking all accessible pages across your eight monitored websites on ${results.date}.\n\n`;
-  report += `Summary: All ${results.summary.total_https_ok} websites loaded over HTTPS with no SSL/security warnings or HTTP errors. Total pages checked: ${results.summary.total_pages_checked}. ${results.summary.total_issues > 0 ? `Issues found on ${results.summary.total_issues} site(s).` : 'No issues found.'}\n\n`;
+  report += `Summary: ${results.summary.total_https_ok} websites loaded over HTTPS with no SSL/security warnings or HTTP errors. Total pages checked: ${results.summary.total_pages_checked}. ${results.summary.total_issues > 0 ? `Issues found on ${results.summary.total_issues} site(s).` : 'No critical issues found.'}\n\n`;
 
-  report += `Website\tHTTPS & Security\tPages & Sections Checked\tStatus & Findings\n`;
-
-  // Add divider
-  report += `─────────────────────────────────────────────────────────────────────────────\n`;
+  report += `${'-'.repeat(80)}\n\n`;
 
   for (const [siteUrl, siteData] of Object.entries(results.sites)) {
-    const siteName = siteUrl.replace('https://', '').replace('www.', '').replace('.com', '');
+    const siteName = siteUrl.replace('https://', '').replace('www.', '');
     const httpsStatus = siteData.https_valid ? 'Valid HTTPS, no warnings' : 'Invalid - HTTP or SSL warning';
     const pagesList = siteData.pages.length > 0 ? siteData.pages.map(p => p.title || 'Home').join(', ') : 'None';
 
-    report += `\n${siteName}\t${httpsStatus}\t${pagesList}\t${siteData.status_text}`;
+    report += `Website: ${siteName}\n`;
+    report += `HTTPS & Security: ${httpsStatus}\n`;
+    report += `Pages & Sections Checked: ${pagesList}\n`;
+    report += `Status & Findings: ${siteData.status_text}\n`;
+    report += `\n`;
   }
 
-  report += `\n`;
+  report += `${'-'.repeat(80)}\n`;
 
   // Write to file for GitHub Actions to read
   fs.writeFileSync('report.txt', report);
