@@ -1,0 +1,27 @@
+name: Send Website Report
+
+on:
+  repository_dispatch:
+    types: [website-report]
+
+jobs:
+  send-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Email Report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.GMAIL_EMAIL }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "Daily Website Monitoring Report - ${{ github.event.client_payload.date }}"
+          to: shane@cybersecurityjoe.com
+          from: ${{ secrets.GMAIL_EMAIL }}
+          body: |
+            Daily Website Monitoring Report
+            Generated: ${{ github.event.client_payload.date }}
+
+            ${{ github.event.client_payload.report }}
+
+          content_type: text/plain
