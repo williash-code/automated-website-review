@@ -39,7 +39,7 @@ async function checkWebsite(browser, websiteUrl) {
   const toVisit = [websiteUrl];
 
   try {
-    while (toVisit.length > 0 && visitedUrls.size < 50) { // Limit to 50 pages per site
+    while (toVisit.length > 0 && visitedUrls.size < 50) {
       const pageUrl = toVisit.shift();
 
       if (visitedUrls.has(pageUrl)) continue;
@@ -49,7 +49,6 @@ async function checkWebsite(browser, websiteUrl) {
         const context = await browser.createIncognitoBrowserContext();
         const page = await context.newPage();
 
-        // Check HTTPS
         const hasHttps = pageUrl.startsWith('https://');
         const pageResult = {
           url: pageUrl,
@@ -62,7 +61,6 @@ async function checkWebsite(browser, websiteUrl) {
           errors: [],
         };
 
-        // Set a user agent
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
 
         const startTime = Date.now();
@@ -80,7 +78,6 @@ async function checkWebsite(browser, websiteUrl) {
           pageResult.statusCode = null;
         }
 
-        // Check for broken images
         const images = await page.locator('img').all();
         for (const img of images) {
           try {
@@ -94,9 +91,8 @@ async function checkWebsite(browser, websiteUrl) {
           }
         }
 
-        // Check for broken links
         const links = await page.locator('a[href]').all();
-        for (const link of links.slice(0, 20)) { // Check first 20 links
+        for (const link of links.slice(0, 20)) {
           try {
             const href = await link.getAttribute('href');
             if (href && !href.startsWith('#') && !href.startsWith('javascript:') && !href.startsWith('mailto:')) {
@@ -112,9 +108,7 @@ async function checkWebsite(browser, websiteUrl) {
           }
         }
 
-        // Check accessibility - headings
         const h1 = await page.locator('h1').count();
-        const h2 = await page.locator('h2').count();
 
         if (h1 === 0) {
           pageResult.accessibility_issues.push('No H1 heading found');
@@ -123,7 +117,6 @@ async function checkWebsite(browser, websiteUrl) {
         siteResult.pages[pageUrl] = pageResult;
         results.summary.total_pages_checked++;
 
-        // Count issues
         if (pageResult.errors.length > 0 || (pageResult.statusCode && pageResult.statusCode >= 400)) {
           results.summary.loading_issues++;
           pageResult.errors.length > 0 && results.summary.total_issues++;
@@ -191,7 +184,7 @@ async function runMonitor() {
     for (const [pageUrl, pageData] of Object.entries(siteData.pages)) {
       report += `  Page: ${pageUrl}\n`;
       report += `    Status: ${pageData.statusCode || 'N/A'}\n`;
-      report += `    HTTPS: ${pageData.https ? '✓ Yes' : '✗ No'}\n`;
+      report += `    HTTPS: ${pageData.https ? 'Yes' : 'No'}\n`;
       report += `    Load time: ${pageData.loadTime}ms\n`;
 
       if (pageData.errors.length > 0) {
@@ -212,12 +205,12 @@ async function runMonitor() {
     report += `${'='.repeat(80)}\n\n`;
   }
 
-  // Output for GitHub Actions
-  const outputReport = report.replace(/\n/g, '\\n').replace(/"/g, '\\"');
-  console.log(`::set-output name=report::${outputReport}`);
-  console.log(`::set-output name=date::${results.date}`);
+  // Write to file for GitHub Actions to read
+  fs.writeFileSync('report.txt', report);
 
-  console.log('\nMonitoring complete!');
+  // Also output to stdout
+  console.log('\n' + report);
+  console.log('Monitoring complete!');
 }
 
 runMonitor().catch(console.error);
