@@ -38,107 +38,106 @@ async function checkWebsite(browser, websiteUrl) {
   const visitedUrls = new Set();
   const toVisit = [websiteUrl];
 
-  try {
-    while (toVisit.length > 0 && visitedUrls.size < 50) {
-      const pageUrl = toVisit.shift();
+  while (toVisit.length > 0 && visitedUrls.size < 50) {
+    const pageUrl = toVisit.shift();
 
-      if (visitedUrls.has(pageUrl)) continue;
-      visitedUrls.add(pageUrl);
+    if (visitedUrls.has(pageUrl)) continue;
+    visitedUrls.add(pageUrl);
+
+    try {
+      const page = await browser.newPage();
+
+      const hasHttps = pageUrl.startsWith('https://');
+      const pageResult = {
+        url: pageUrl,
+        https: hasHttps,
+        statusCode: null,
+        loadTime: 0,
+        accessibility_issues: [],
+        errors: [],
+      };
+
+      const startTime = Date.now();
 
       try {
-        const context = await browser.createIncognitoBrowserContext();
-        const page = await context.newPage();
+        const response = await page.goto(pageUrl, { waitUntil: 'networkidle', timeout: 30000 });
+        pageResult.statusCode = response?.status();
+        pageResult.loadTime = Date.now() - startTime;
 
-        const hasHttps = pageUrl.startsWith('https://');
-        const pageResult = {
-          url: pageUrl,
-          https: hasHttps,
-          statusCode: null,
-          loadTime: 0,
-          broken_images: 0,
-          broken_links: [],
-          accessibility_issues: [],
-          errors: [],
-        };
-
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-
-        const startTime = Date.now();
-
-        try {
-          const response = await page.goto(pageUrl, { waitUntil: 'networkidle', timeout: 30000 });
-          pageResult.statusCode = response?.status();
-          pageResult.loadTime = Date.now() - startTime;
-
-          if (response?.status() >= 400) {
-            pageResult.errors.push(`HTTP ${response.status()}`);
-          }
-        } catch (e) {
-          pageResult.errors.push(`Navigation failed: ${e.message.substring(0, 50)}`);
-          pageResult.statusCode = null;
+        if (response?.status() >= 400) {
+          pageResult.errors.push(`HTTP ${response.status()}`);
         }
+      } catch (e) {
+        pageResult.errors.push(`Navigation failed: ${e.message.substring(0, 50)}`);
+      }
 
+      // Check images for alt text
+      try {
         const images = await page.locator('img').all();
         for (const img of images) {
-          try {
-            const src = await img.getAttribute('src');
-            const alt = await img.getAttribute('alt');
-            if (!alt || alt.trim() === '') {
-              pageResult.accessibility_issues.push(`Image missing alt text: ${src?.substring(0, 50)}`);
-            }
-          } catch (e) {
-            // ignore
+          const alt = await img.getAttribute('alt');
+          if (!alt || alt.trim() === '') {
+            pageResult.accessibility_issues.push('Image missing alt text');
           }
         }
+      } catch (e) {
+        // ignore
+      }
 
-        const links = await page.locator('a[href]').all();
-        for (const link of links.slice(0, 20)) {
-          try {
-            const href = await link.getAttribute('href');
-            if (href && !href.startsWith('#') && !href.startsWith('javascript:') && !href.startsWith('mailto:')) {
-              const absoluteUrl = new URL(href, pageUrl).toString();
-              const linkDomain = new URL(absoluteUrl).hostname;
-
-              if (linkDomain === domain) {
-                toVisit.push(absoluteUrl);
-              }
-            }
-          } catch (e) {
-            // ignore
-          }
-        }
-
+      // Check for H1
+      try {
         const h1 = await page.locator('h1').count();
-
         if (h1 === 0) {
           pageResult.accessibility_issues.push('No H1 heading found');
         }
-
-        siteResult.pages[pageUrl] = pageResult;
-        results.summary.total_pages_checked++;
-
-        if (pageResult.errors.length > 0 || (pageResult.statusCode && pageResult.statusCode >= 400)) {
-          results.summary.loading_issues++;
-          pageResult.errors.length > 0 && results.summary.total_issues++;
-        }
-        if (!hasHttps) {
-          results.summary.https_issues++;
-          results.summary.total_issues++;
-        }
-        if (pageResult.accessibility_issues.length > 0) {
-          results.summary.accessibility_issues++;
-          results.summary.total_issues++;
-        }
-
-        await page.close();
-        await context.close();
-
       } catch (e) {
-        console.error(`Error checking page ${pageUrl}:`, e.message.substring(0, 100));
+        // ignore
       }
+
+      // Find links to crawl
+      try {
+        const links = await page.locator('a[href]').all();
+        for (const link of links.slice(0, 20)) {
+          const href = await link.getAttribute('href');
+          if (href && !href.startsWith('#') && !href.startsWith('javascript:') && !href.startsWith('mailto:')) {
+            try {
+              const absoluteUrl = new URL(href, pageUrl).toString();
+              const linkDomain = new URL(absoluteUrl).hostname;
+
+              if (linkDomain === domain && !visitedUrls.has(absoluteUrl)) {
+                toVisit.push(absoluteUrl);
+              }
+            } catch (e) {
+              // ignore invalid URLs
+            }
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      siteResult.pages[pageUrl] = pageResult;
+      results.summary.total_pages_checked++;
+
+      // Count issues
+      if (pageResult.errors.length > 0 || (pageResult.statusCode && pageResult.statusCode >= 400)) {
+        results.summary.loading_issues++;
+        results.summary.total_issues++;
+      }
+      if (!hasHttps) {
+        results.summary.https_issues++;
+        results.summary.total_issues++;
+      }
+      if (pageResult.accessibility_issues.length > 0) {
+        results.summary.accessibility_issues++;
+        results.summary.total_issues++;
+      }
+
+      await page.close();
+
+    } catch (e) {
+      console.error(`Error checking page ${pageUrl}:`, e.message.substring(0, 100));
     }
-  } catch (e) {
-    siteResult.issues.push(`Failed to check website: ${e.message}`);
   }
 
   return siteResult;
@@ -208,7 +207,6 @@ async function runMonitor() {
   // Write to file for GitHub Actions to read
   fs.writeFileSync('report.txt', report);
 
-  // Also output to stdout
   console.log('\n' + report);
   console.log('Monitoring complete!');
 }
