@@ -2,18 +2,17 @@ name: Daily Website Monitoring
 
 on:
   schedule:
-    # Run daily at 9:00 AM UTC (adjust timezone as needed)
     - cron: '0 9 * * *'
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch:
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
 
@@ -21,18 +20,20 @@ jobs:
         run: npm install playwright
 
       - name: Run website monitor
-        id: monitor
         run: node monitor.js
-        env:
-          WEBSITES: |
-            https://www.shanecwilliams.com
-            https://www.mazzyblue.com
-            https://www.foxandtherose.com
-            https://www.foxandrosetherapy.com
-            https://www.manassasartguild.com
-            https://www.chrisjohnarts.com
-            https://www.pbsstudios.com
-            https://www.christineeber.com
+
+      - name: Read report
+        id: report
+        run: |
+          if [ -f report.txt ]; then
+            REPORT=$(cat report.txt)
+            echo "report<<EOF" >> $GITHUB_OUTPUT
+            echo "$REPORT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "report=No report generated" >> $GITHUB_OUTPUT
+          fi
+          echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
       - name: Send email report
         if: always()
@@ -42,8 +43,9 @@ jobs:
           server_port: 465
           username: ${{ secrets.GMAIL_EMAIL }}
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
-          subject: "Daily Website Monitoring Report - ${{ steps.monitor.outputs.date }}"
+          subject: "Daily Website Monitoring Report - ${{ steps.report.outputs.date }}"
           to: shane@cybersecurityjoe.com
           from: ${{ secrets.GMAIL_EMAIL }}
-          body: ${{ steps.monitor.outputs.report }}
+          body: ${{ steps.report.outputs.report }}
+          content_type: text/plainr.outputs.report }}
           content_type: text/plain
