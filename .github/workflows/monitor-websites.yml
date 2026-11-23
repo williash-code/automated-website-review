@@ -47,5 +47,4 @@ jobs:
           to: shane@cybersecurityjoe.com
           from: ${{ secrets.GMAIL_EMAIL }}
           body: ${{ steps.report.outputs.report }}
-          content_type: text/plainr.outputs.report }}
           content_type: text/plain
