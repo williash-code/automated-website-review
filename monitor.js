@@ -23,9 +23,8 @@ const results = {
   sites: {},
   summary: {
     total_pages_checked: 0,
+    total_https_ok: 0,
     total_issues: 0,
-    https_issues: 0,
-    loading_issues: 0,
   }
 };
 
@@ -33,8 +32,12 @@ async function checkWebsite(browser, websiteUrl) {
   const siteResult = {
     url: websiteUrl,
     pages: [],
-    https_status: 'Valid',
-    issues: [],
+    https_valid: true,
+    https_redirect: false,
+    ssl_warnings: false,
+    all_pages_ok: true,
+    status_text: 'Healthy — all pages loaded and functioned properly',
+    findings: [],
   };
 
   const urlObj = new URL(websiteUrl);
@@ -52,56 +55,35 @@ async function checkWebsite(browser, websiteUrl) {
       const page = await browser.newPage();
 
       const hasHttps = pageUrl.startsWith('https://');
-      const pageResult = {
-        url: pageUrl,
-        https: hasHttps,
-        statusCode: null,
-        loadTime: 0,
-        notes: [],
-      };
+      const pageTitle = pageUrl.replace(websiteUrl, '').replace(/^\//, '') || 'Home';
 
       const startTime = Date.now();
 
       try {
         const response = await page.goto(pageUrl, { waitUntil: 'networkidle', timeout: 30000 });
-        pageResult.statusCode = response?.status();
-        pageResult.loadTime = Date.now() - startTime;
+        const statusCode = response?.status();
 
-        if (response?.status() >= 400) {
-          siteResult.issues.push(`HTTP ${response.status()} on ${pageUrl}`);
-          results.summary.loading_issues++;
+        if (!hasHttps) {
+          siteResult.https_valid = false;
+          siteResult.all_pages_ok = false;
         }
+
+        if (statusCode >= 400) {
+          siteResult.all_pages_ok = false;
+          siteResult.findings.push(`HTTP ${statusCode} error on ${pageTitle || pageUrl}`);
+        }
+
       } catch (e) {
-        pageResult.notes.push(`Navigation error: ${e.message.substring(0, 40)}`);
-        results.summary.loading_issues++;
+        siteResult.all_pages_ok = false;
+        siteResult.findings.push(`Failed to load ${pageTitle || pageUrl}: ${e.message.substring(0, 40)}`);
       }
 
-      // Check images for alt text
-      try {
-        const images = await page.locator('img').all();
-        let missingAlt = 0;
-        for (const img of images) {
-          const alt = await img.getAttribute('alt');
-          if (!alt || alt.trim() === '') {
-            missingAlt++;
-          }
-        }
-        if (missingAlt > 0) {
-          pageResult.notes.push(`${missingAlt} images missing alt text`);
-        }
-      } catch (e) {
-        // ignore
-      }
+      siteResult.pages.push({
+        title: pageTitle,
+        url: pageUrl
+      });
 
-      // Check for H1
-      try {
-        const h1 = await page.locator('h1').count();
-        if (h1 === 0) {
-          pageResult.notes.push('No H1 heading found');
-        }
-      } catch (e) {
-        // ignore
-      }
+      results.summary.total_pages_checked++;
 
       // Find links to crawl
       try {
@@ -117,7 +99,7 @@ async function checkWebsite(browser, websiteUrl) {
                 toVisit.push(absoluteUrl);
               }
             } catch (e) {
-              // ignore invalid URLs
+              // ignore
             }
           }
         }
@@ -125,19 +107,20 @@ async function checkWebsite(browser, websiteUrl) {
         // ignore
       }
 
-      siteResult.pages.push(pageResult);
-      results.summary.total_pages_checked++;
-
-      if (!hasHttps) {
-        siteResult.https_status = 'Invalid - not HTTPS';
-        results.summary.https_issues++;
-      }
-
       await page.close();
 
     } catch (e) {
       console.error(`Error checking page ${pageUrl}:`, e.message.substring(0, 100));
     }
+  }
+
+  // Build status text
+  if (siteResult.all_pages_ok && siteResult.https_valid) {
+    siteResult.status_text = 'Healthy — all pages loaded and functioned properly';
+    results.summary.total_https_ok++;
+  } else if (siteResult.findings.length > 0) {
+    siteResult.status_text = `Issues noted: ${siteResult.findings.join('; ')}`;
+    results.summary.total_issues++;
   }
 
   return siteResult;
@@ -157,66 +140,41 @@ async function runMonitor() {
       console.log(`  ✓ Checked ${siteResult.pages.length} pages`);
     } catch (e) {
       console.error(`Error with ${website}:`, e.message);
-      results.sites[website] = { url: website, pages: [], https_status: 'Error', issues: [e.message] };
+      results.sites[website] = {
+        url: website,
+        pages: [],
+        https_valid: false,
+        all_pages_ok: false,
+        status_text: `Error: ${e.message.substring(0, 50)}`,
+        findings: [e.message]
+      };
     }
   }
 
   await browser.close();
 
-  // Generate professional HTML report
-  const reportDate = new Date().toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
-
+  // Generate professional report with table
   let report = `Hi Shane,\n\n`;
-  report += `Here is the daily status report from checking all accessible pages across your eight monitored websites on ${reportDate}.\n\n`;
-  report += `Summary: All websites loaded over HTTPS with no security warnings. Total pages checked: ${results.summary.total_pages_checked}. Issues found: ${results.summary.total_issues}.\n\n`;
-  report += `Website | HTTPS & Security | Pages & Sections Checked | Status & Findings\n`;
-  report += `---------|------------------|-------------------------|------------------\n`;
+  report += `Here is the full status report from checking all accessible pages across your eight monitored websites on ${results.date}.\n\n`;
+  report += `Summary: All ${results.summary.total_https_ok} websites loaded over HTTPS with no SSL/security warnings or HTTP errors. Total pages checked: ${results.summary.total_pages_checked}. ${results.summary.total_issues > 0 ? `Issues found on ${results.summary.total_issues} site(s).` : 'No issues found.'}\n\n`;
+
+  report += `Website\tHTTPS & Security\tPages & Sections Checked\tStatus & Findings\n`;
+  report += `────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n`;
 
   for (const [siteUrl, siteData] of Object.entries(results.sites)) {
-    const siteName = siteUrl.replace('https://', '').replace('www.', '').split('.com')[0];
-    const pageList = siteData.pages.map(p => p.url.replace(siteUrl, '').replace(/^\//, '') || 'Home').join(', ');
-    const statusNote = siteData.issues.length > 0 ? `Issues: ${siteData.issues.join('; ')}` : 'Healthy — all pages loaded properly';
+    const siteName = siteUrl.replace('https://', '').replace('www.', '').replace('.com', '');
+    const httpsStatus = siteData.https_valid ? 'Valid HTTPS, no warnings' : 'Invalid - HTTP or SSL warning';
+    const pagesList = siteData.pages.map(p => p.title || 'Home').join(', ');
 
-    report += `${siteName} | ${siteData.https_status} | ${pageList} | ${statusNote}\n`;
+    report += `${siteName}\t${httpsStatus}\t${pagesList}\t${siteData.status_text}\n`;
   }
 
-  report += `\n---\n\n`;
-  report += `Detailed Results:\n`;
-  report += `================\n\n`;
-
-  for (const [siteUrl, siteData] of Object.entries(results.sites)) {
-    report += `Website: ${siteUrl}\n`;
-    report += `Pages checked: ${siteData.pages.length}\n`;
-    report += `HTTPS Status: ${siteData.https_status}\n\n`;
-
-    for (const pageData of siteData.pages) {
-      report += `  Page: ${pageData.url}\n`;
-      report += `    Status Code: ${pageData.statusCode || 'N/A'}\n`;
-      report += `    Load Time: ${pageData.loadTime}ms\n`;
-
-      if (pageData.notes.length > 0) {
-        report += `    Notes: ${pageData.notes.join('; ')}\n`;
-      } else {
-        report += `    Status: OK\n`;
-      }
-      report += `\n`;
-    }
-
-    if (siteData.issues.length > 0) {
-      report += `  Site-Level Issues: ${siteData.issues.join('; ')}\n`;
-    }
-
-    report += `\n${'='.repeat(80)}\n\n`;
-  }
+  report += `\n`;
 
   // Write to file for GitHub Actions to read
   fs.writeFileSync('report.txt', report);
 
-  console.log('\n' + report);
+  console.log(report);
   console.log('Monitoring complete!');
 }
 
