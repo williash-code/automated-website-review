@@ -12,6 +12,7 @@ const websites = [
   'https://www.pbsstudios.com',
   'https://www.christineeber.com',
   'https://mail.cybersecurityjoe.com',
+  'https://www.cybersecurityjoe.com',
 ];
 
 const results = {
