@@ -1,0 +1,49 @@
+name: Daily Website Monitoring
+
+on:
+  schedule:
+    # Run daily at 9:00 AM UTC (adjust timezone as needed)
+    - cron: '0 9 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install playwright
+
+      - name: Run website monitor
+        id: monitor
+        run: node monitor.js
+        env:
+          WEBSITES: |
+            https://www.shanecwilliams.com
+            https://www.mazzyblue.com
+            https://www.foxandtherose.com
+            https://www.foxandrosetherapy.com
+            https://www.manassasartguild.com
+            https://www.chrisjohnarts.com
+            https://www.pbsstudios.com
+            https://www.christineeber.com
+
+      - name: Send email report
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.GMAIL_EMAIL }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "Daily Website Monitoring Report - ${{ steps.monitor.outputs.date }}"
+          to: shane@cybersecurityjoe.com
+          from: ${{ secrets.GMAIL_EMAIL }}
+          body: ${{ steps.monitor.outputs.report }}
+          content_type: text/plain
