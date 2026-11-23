@@ -33,8 +33,6 @@ async function checkWebsite(browser, websiteUrl) {
     url: websiteUrl,
     pages: [],
     https_valid: true,
-    https_redirect: false,
-    ssl_warnings: false,
     all_pages_ok: true,
     status_text: 'Healthy — all pages loaded and functioned properly',
     findings: [],
@@ -57,8 +55,6 @@ async function checkWebsite(browser, websiteUrl) {
       const hasHttps = pageUrl.startsWith('https://');
       const pageTitle = pageUrl.replace(websiteUrl, '').replace(/^\//, '') || 'Home';
 
-      const startTime = Date.now();
-
       try {
         const response = await page.goto(pageUrl, { waitUntil: 'networkidle', timeout: 30000 });
         const statusCode = response?.status();
@@ -70,12 +66,12 @@ async function checkWebsite(browser, websiteUrl) {
 
         if (statusCode >= 400) {
           siteResult.all_pages_ok = false;
-          siteResult.findings.push(`HTTP ${statusCode} error on ${pageTitle || pageUrl}`);
+          siteResult.findings.push(`HTTP ${statusCode} error on ${pageTitle}`);
         }
 
       } catch (e) {
         siteResult.all_pages_ok = false;
-        siteResult.findings.push(`Failed to load ${pageTitle || pageUrl}: ${e.message.substring(0, 40)}`);
+        siteResult.findings.push(`Failed to load ${pageTitle}`);
       }
 
       siteResult.pages.push({
@@ -153,20 +149,22 @@ async function runMonitor() {
 
   await browser.close();
 
-  // Generate professional report with table
+  // Generate professional report with HTML table
   let report = `Hi Shane,\n\n`;
   report += `Here is the full status report from checking all accessible pages across your eight monitored websites on ${results.date}.\n\n`;
   report += `Summary: All ${results.summary.total_https_ok} websites loaded over HTTPS with no SSL/security warnings or HTTP errors. Total pages checked: ${results.summary.total_pages_checked}. ${results.summary.total_issues > 0 ? `Issues found on ${results.summary.total_issues} site(s).` : 'No issues found.'}\n\n`;
 
   report += `Website\tHTTPS & Security\tPages & Sections Checked\tStatus & Findings\n`;
-  report += `────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n`;
+
+  // Add divider
+  report += `─────────────────────────────────────────────────────────────────────────────\n`;
 
   for (const [siteUrl, siteData] of Object.entries(results.sites)) {
     const siteName = siteUrl.replace('https://', '').replace('www.', '').replace('.com', '');
     const httpsStatus = siteData.https_valid ? 'Valid HTTPS, no warnings' : 'Invalid - HTTP or SSL warning';
-    const pagesList = siteData.pages.map(p => p.title || 'Home').join(', ');
+    const pagesList = siteData.pages.length > 0 ? siteData.pages.map(p => p.title || 'Home').join(', ') : 'None';
 
-    report += `${siteName}\t${httpsStatus}\t${pagesList}\t${siteData.status_text}\n`;
+    report += `\n${siteName}\t${httpsStatus}\t${pagesList}\t${siteData.status_text}`;
   }
 
   report += `\n`;
